@@ -1,14 +1,13 @@
-# MVPoisk TV Android v3
+# MVPoisk TV Android v4
 
-Android TV WebView shell for MVPoisk TV v32.
+Android TV WebView shell for MVPoisk TV v33.
 
-Changes from v2:
-- no WebView overview auto-scaling (fixes 4K zoom mismatch);
-- loads `?tv=1&app=3`;
-- D-pad virtual cursor while the partner player is open;
-- OK sends a real touch at the cursor position, so cross-origin Play / season / episode / voice controls can be clicked;
-- Back closes the fullscreen MVPoisk player shell;
-- explicit Android TV keyboard request for search;
-- uses the same permanent MVPoisk release signing secrets as v2.
+Changes from v3:
+- loads `?tv=1&app=4`;
+- virtual player cursor fades out after 2.4 seconds of inactivity;
+- any D-pad movement immediately restores the cursor;
+- OK also briefly restores the cursor before sending the touch;
+- remote Back remains the only TV playback exit;
+- uses the same permanent MVPoisk release signing secrets as v2/v3.
 
-Build with the included GitHub Actions workflow. Artifact: `mvpoisk-tv-v3-release-apk`.
+Build with the included GitHub Actions workflow. Artifact: `mvpoisk-tv-v4-release-apk`.

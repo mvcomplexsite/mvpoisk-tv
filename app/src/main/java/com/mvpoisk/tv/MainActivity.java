@@ -25,7 +25,7 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
 public class MainActivity extends Activity {
-    private static final String HOME = "https://mvcomplexsite.github.io/mvpoisk/?tv=1&app=3";
+    private static final String HOME = "https://mvcomplexsite.github.io/mvpoisk/?tv=1&app=4";
 
     private FrameLayout root;
     private WebView webView;
@@ -77,7 +77,7 @@ public class MainActivity extends Activity {
         settings.setTextZoom(100);
         settings.setLayoutAlgorithm(WebSettings.LayoutAlgorithm.NORMAL);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        settings.setUserAgentString(settings.getUserAgentString() + " MVPoiskTV/3.0 AndroidTV");
+        settings.setUserAgentString(settings.getUserAgentString() + " MVPoiskTV/4.0 AndroidTV");
 
         webView.addJavascriptInterface(new TvBridge(), "MVPoiskAndroid");
 
@@ -164,8 +164,10 @@ public class MainActivity extends Activity {
         if (open) {
             cursorView.resetToCenter();
             cursorView.setVisibility(View.VISIBLE);
+            cursorView.showTemporarily();
             cursorView.bringToFront();
         } else {
+            cursorView.cancelFade();
             cursorView.setVisibility(View.GONE);
         }
     }
@@ -242,6 +244,7 @@ public class MainActivity extends Activity {
 
             if ((code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER)
                     && event.getAction() == KeyEvent.ACTION_UP) {
+                cursorView.showTemporarily();
                 tapAtCursor();
                 return true;
             }
@@ -295,6 +298,7 @@ public class MainActivity extends Activity {
         private final Paint inner = new Paint(Paint.ANTI_ALIAS_FLAG);
         private float x;
         private float y;
+        private final Runnable fadeRunnable = () -> animate().alpha(0f).setDuration(320).start();
 
         CursorView(Context context) {
             super(context);
@@ -312,10 +316,25 @@ public class MainActivity extends Activity {
                 x = getWidth() * 0.5f;
                 y = getHeight() * 0.5f;
                 invalidate();
+                showTemporarily();
             });
         }
 
+        void showTemporarily() {
+            removeCallbacks(fadeRunnable);
+            animate().cancel();
+            setAlpha(1f);
+            postDelayed(fadeRunnable, 2400);
+        }
+
+        void cancelFade() {
+            removeCallbacks(fadeRunnable);
+            animate().cancel();
+            setAlpha(1f);
+        }
+
         void move(float dx, float dy, int repeatCount) {
+            showTemporarily();
             float base = Math.max(32f, getWidth() * 0.018f);
             float acceleration = repeatCount >= 8 ? 2.2f : repeatCount >= 3 ? 1.55f : 1f;
             float step = base * acceleration;
