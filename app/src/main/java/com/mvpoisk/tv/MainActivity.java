@@ -1,8 +1,11 @@
 package com.mvpoisk.tv;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -11,6 +14,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -21,15 +25,14 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
 public class MainActivity extends Activity {
-    private static final String HOME = "https://mvcomplexsite.github.io/mvpoisk/?tv=1";
+    private static final String HOME = "https://mvcomplexsite.github.io/mvpoisk/?tv=1&app=3";
 
     private FrameLayout root;
     private WebView webView;
+    private CursorView cursorView;
     private View fullscreenView;
     private WebChromeClient.CustomViewCallback fullscreenCallback;
-    private boolean playerFrameFocused = false;
-    private boolean playerPrimed = false;
-    private String lastVisitedUrl = "";
+    private boolean playerOpen = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,8 +49,16 @@ public class MainActivity extends Activity {
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        webView.setVerticalScrollBarEnabled(false);
+        webView.setHorizontalScrollBarEnabled(false);
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         root.addView(webView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+
+        cursorView = new CursorView(this);
+        cursorView.setVisibility(View.GONE);
+        root.addView(cursorView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -56,17 +67,18 @@ public class MainActivity extends Activity {
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
+        // Do not shrink a 1920-wide web page again to "fit" the physical 4K panel.
+        // This was one of the causes of the v1/v2 TV zoom/scale mismatch.
+        settings.setLoadWithOverviewMode(false);
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
         settings.setTextZoom(100);
         settings.setLayoutAlgorithm(WebSettings.LayoutAlgorithm.NORMAL);
-        settings.setUserAgentString(settings.getUserAgentString() + " MVPoiskTV/2.0 AndroidTV");
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        settings.setUserAgentString(settings.getUserAgentString() + " MVPoiskTV/3.0 AndroidTV");
 
-        // The bridge exposes only TV focus state. It cannot read page data or execute
-        // arbitrary Android actions, so partner iframes do not receive a privileged API.
         webView.addJavascriptInterface(new TvBridge(), "MVPoiskAndroid");
 
         CookieManager.getInstance().setAcceptCookie(true);
@@ -87,25 +99,15 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
-                super.doUpdateVisitedHistory(view, url, isReload);
-                boolean wasWatch = lastVisitedUrl != null && lastVisitedUrl.contains("#watch");
-                boolean isWatch = url != null && url.contains("#watch");
-                if (isWatch && !wasWatch) {
-                    playerPrimed = false;
-                } else if (!isWatch) {
-                    playerPrimed = false;
-                    playerFrameFocused = false;
-                }
-                lastVisitedUrl = url == null ? "" : url;
-            }
-
-            @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                // If navigation returned to a normal page, ensure the cursor cannot
+                // remain floating above the catalogue.
                 view.evaluateJavascript(
-                        "try{window.MVPoiskTV&&window.MVPoiskTV.preparePlayerFrames&&window.MVPoiskTV.preparePlayerFrames()}catch(e){}",
-                        null);
+                        "Boolean(window.MVPoiskTVPlayer&&window.MVPoiskTVPlayer.isOpen&&window.MVPoiskTVPlayer.isOpen())",
+                        value -> {
+                            if (!"true".equals(value)) setPlayerOpenUi(false);
+                        });
             }
         });
 
@@ -122,6 +124,7 @@ public class MainActivity extends Activity {
                 root.addView(view, new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT));
+                if (playerOpen) cursorView.bringToFront();
                 enterImmersive();
             }
 
@@ -141,8 +144,29 @@ public class MainActivity extends Activity {
 
     private class TvBridge {
         @JavascriptInterface
-        public void setPlayerFrameFocused(boolean focused) {
-            runOnUiThread(() -> playerFrameFocused = focused);
+        public void setPlayerOpen(boolean open) {
+            runOnUiThread(() -> setPlayerOpenUi(open));
+        }
+
+        @JavascriptInterface
+        public void requestKeyboard() {
+            runOnUiThread(() -> {
+                webView.requestFocus();
+                InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm != null) imm.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT);
+            });
+        }
+    }
+
+    private void setPlayerOpenUi(boolean open) {
+        playerOpen = open;
+        if (cursorView == null) return;
+        if (open) {
+            cursorView.resetToCenter();
+            cursorView.setVisibility(View.VISIBLE);
+            cursorView.bringToFront();
+        } else {
+            cursorView.setVisibility(View.GONE);
         }
     }
 
@@ -156,17 +180,27 @@ public class MainActivity extends Activity {
                         | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
     }
 
-    private void tapPlayerCenter() {
-        if (webView == null || webView.getWidth() <= 0 || webView.getHeight() <= 0) return;
-        final float x = webView.getWidth() / 2f;
-        final float y = webView.getHeight() / 2f;
-        final long now = SystemClock.uptimeMillis();
+    private void tapAtCursor() {
+        if (cursorView == null) return;
+        View target = fullscreenView != null ? fullscreenView : webView;
+        if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0) return;
+        float x = cursorView.getCursorX();
+        float y = cursorView.getCursorY();
+        long now = SystemClock.uptimeMillis();
         MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0);
-        MotionEvent up = MotionEvent.obtain(now, now + 70, MotionEvent.ACTION_UP, x, y, 0);
-        webView.dispatchTouchEvent(down);
-        webView.dispatchTouchEvent(up);
+        MotionEvent up = MotionEvent.obtain(now, now + 65, MotionEvent.ACTION_UP, x, y, 0);
+        target.dispatchTouchEvent(down);
+        target.dispatchTouchEvent(up);
         down.recycle();
         up.recycle();
+    }
+
+    private boolean closeWebPlayerIfOpen() {
+        if (!playerOpen || webView == null) return false;
+        webView.evaluateJavascript(
+                "try{Boolean(window.MVPoiskTVPlayer&&window.MVPoiskTVPlayer.closeIfOpen&&window.MVPoiskTVPlayer.closeIfOpen())}catch(e){false}",
+                value -> setPlayerOpenUi(false));
+        return true;
     }
 
     private void exitFullscreenPlayer() {
@@ -177,12 +211,41 @@ public class MainActivity extends Activity {
         if (fullscreenCallback != null) fullscreenCallback.onCustomViewHidden();
         fullscreenCallback = null;
         webView.requestFocus();
+        if (playerOpen) cursorView.bringToFront();
         enterImmersive();
     }
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         final int code = event.getKeyCode();
+
+        if (playerOpen) {
+            if (code == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
+                if (fullscreenView != null) exitFullscreenPlayer();
+                closeWebPlayerIfOpen();
+                return true;
+            }
+
+            if (code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
+                    || code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    float dx = 0f;
+                    float dy = 0f;
+                    if (code == KeyEvent.KEYCODE_DPAD_LEFT) dx = -1f;
+                    if (code == KeyEvent.KEYCODE_DPAD_RIGHT) dx = 1f;
+                    if (code == KeyEvent.KEYCODE_DPAD_UP) dy = -1f;
+                    if (code == KeyEvent.KEYCODE_DPAD_DOWN) dy = 1f;
+                    cursorView.move(dx, dy, event.getRepeatCount());
+                }
+                return true;
+            }
+
+            if ((code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER)
+                    && event.getAction() == KeyEvent.ACTION_UP) {
+                tapAtCursor();
+                return true;
+            }
+        }
 
         if (code == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
             if (fullscreenView != null) {
@@ -194,19 +257,6 @@ public class MainActivity extends Activity {
                 return true;
             }
         }
-
-        // Some web players do not expose their large center Play button to Android TV
-        // keyboard focus. On the first OK while the iframe itself is focused, emulate
-        // a real center tap. After that, all D-pad/OK events are passed to the player.
-        if ((code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
-                && event.getAction() == KeyEvent.ACTION_UP
-                && playerFrameFocused
-                && !playerPrimed) {
-            playerPrimed = true;
-            tapPlayerCenter();
-            return true;
-        }
-
         return super.dispatchKeyEvent(event);
     }
 
@@ -238,5 +288,52 @@ public class MainActivity extends Activity {
             webView.destroy();
         }
         super.onDestroy();
+    }
+
+    private static class CursorView extends View {
+        private final Paint outer = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint inner = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private float x;
+        private float y;
+
+        CursorView(Context context) {
+            super(context);
+            setWillNotDraw(false);
+            setClickable(false);
+            setFocusable(false);
+            outer.setStyle(Paint.Style.FILL);
+            outer.setColor(Color.argb(230, 10, 10, 14));
+            inner.setStyle(Paint.Style.FILL);
+            inner.setColor(Color.WHITE);
+        }
+
+        void resetToCenter() {
+            post(() -> {
+                x = getWidth() * 0.5f;
+                y = getHeight() * 0.5f;
+                invalidate();
+            });
+        }
+
+        void move(float dx, float dy, int repeatCount) {
+            float base = Math.max(32f, getWidth() * 0.018f);
+            float acceleration = repeatCount >= 8 ? 2.2f : repeatCount >= 3 ? 1.55f : 1f;
+            float step = base * acceleration;
+            float margin = Math.max(18f, getWidth() * 0.008f);
+            x = Math.max(margin, Math.min(getWidth() - margin, x + dx * step));
+            y = Math.max(margin, Math.min(getHeight() - margin, y + dy * step));
+            invalidate();
+        }
+
+        float getCursorX() { return x; }
+        float getCursorY() { return y; }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float r = Math.max(8f, getWidth() * 0.0046f);
+            canvas.drawCircle(x, y, r + 5f, outer);
+            canvas.drawCircle(x, y, r, inner);
+        }
     }
 }
