@@ -25,7 +25,7 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
 public class MainActivity extends Activity {
-    private static final String HOME = "https://mvcomplexsite.github.io/mvpoisk/?tv=1&app=4";
+    private static final String HOME = "https://mvcomplexsite.github.io/mvpoisk/?tv=1&app=5";
 
     private FrameLayout root;
     private WebView webView;
@@ -33,6 +33,7 @@ public class MainActivity extends Activity {
     private View fullscreenView;
     private WebChromeClient.CustomViewCallback fullscreenCallback;
     private boolean playerOpen = false;
+    private boolean searchEditing = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -149,11 +150,32 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void setSearchEditing(boolean editing) {
+            runOnUiThread(() -> searchEditing = editing);
+        }
+
+        @JavascriptInterface
         public void requestKeyboard() {
             runOnUiThread(() -> {
+                searchEditing = true;
                 webView.requestFocus();
-                InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-                if (imm != null) imm.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT);
+
+                // Android TV WebView can briefly drop the DOM input focus while
+                // creating the IME window. Re-focus after the original OK event
+                // has completely finished and ask the IME to remain visible.
+                Runnable showKeyboard = () -> {
+                    if (!searchEditing || webView == null) return;
+                    webView.evaluateJavascript(
+                            "try{var i=document.getElementById('searchInput');" +
+                            "if(i){i.tabIndex=0;i.focus({preventScroll:true});true}else{false}}catch(e){false}",
+                            null);
+                    InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT);
+                };
+
+                webView.postDelayed(showKeyboard, 90);
+                webView.postDelayed(showKeyboard, 320);
+                webView.postDelayed(showKeyboard, 700);
             });
         }
     }
@@ -248,6 +270,16 @@ public class MainActivity extends Activity {
                 tapAtCursor();
                 return true;
             }
+        }
+
+        if (searchEditing && code == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
+            searchEditing = false;
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) imm.hideSoftInputFromWindow(webView.getWindowToken(), 0);
+            webView.evaluateJavascript(
+                    "try{window.MVPoiskTV&&window.MVPoiskTV.closeSearchEditing&&window.MVPoiskTV.closeSearchEditing({refocus:true});true}catch(e){false}",
+                    null);
+            return true;
         }
 
         if (code == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
