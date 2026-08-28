@@ -1,17 +1,30 @@
-# MVPoisk TV Android project
+# MVPoisk TV Android v2
 
-A minimal Android TV WebView shell for the MVPoisk TV web mode.
+Android TV WebView shell for MVPoisk TV mode.
 
-Production URL opened by the app:
+Production URL:
 `https://mvcomplexsite.github.io/mvpoisk/?tv=1`
 
-## Build
-1. Open this folder in Android Studio.
-2. Let Gradle sync and install Android SDK 35 if prompted.
-3. Build > Build APK(s).
-4. Install `app-debug.apk` on Android TV with ADB or a file manager.
+## v2 changes
 
-The app declares `LEANBACK_LAUNCHER`, requires Android TV/Google TV, does not require a touchscreen, supports D-pad navigation through the website TV mode, and supports WebView fullscreen custom views for embedded video players.
+- dedicated 1920x1080 CSS viewport for stable scaling on 4K Android TV;
+- full-screen MVPoisk player shell when pressing Watch;
+- partner iframe receives D-pad keys instead of MVPoisk stealing them;
+- the first OK while the partner iframe is focused emulates a center tap for players whose big Play button is not keyboard-focusable;
+- Back closes the TV player state before navigating away;
+- hardware-accelerated WebView and fixed text zoom;
+- versionCode 2 / versionName 2.0;
+- release workflow uses a persistent MVPoisk signing key through GitHub repository secrets.
 
-## Build without Android Studio (GitHub Actions)
-Push this project to a GitHub repository. The included workflow `.github/workflows/build-apk.yml` builds a debug APK on every push to `main` and also supports manual `workflow_dispatch`. Download the `mvpoisk-tv-debug-apk` artifact from the Actions run.
+## Required GitHub Actions secrets
+
+Create these repository secrets before running the workflow:
+
+- `MVPOISK_KEYSTORE_BASE64`
+- `MVPOISK_KEYSTORE_PASSWORD`
+- `MVPOISK_KEY_ALIAS`
+- `MVPOISK_KEY_PASSWORD`
+
+Do not commit the `.jks` signing key or the secrets text file to the public repository.
+
+The workflow produces artifact `mvpoisk-tv-v2-release-apk` containing `app-release.apk`.
